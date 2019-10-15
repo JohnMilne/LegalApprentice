@@ -27,24 +27,29 @@
 #   ease of use testing out different models.
 def model_compiler(max_words = 5000,
                    dropout   = 0.50,
-                   num_class = 6
+                   num_class = 6,
                    reduction = 1,
                    scale     = 1):
-
+    
+    # Imports of import:
+    from tensorflow.keras.layers import Dense, Dropout
+    from tensorflow.keras.models import Sequential
+    
     ### Model Creation
+    
     # The first step is to instantiate the model:
     model = Sequential();
 
     # Now to start adding the layers:
 
-    # The first layer is the input layer.  IT seems desirable to have the
+    # The first layer is the input layer.  It seems desirable to have the
     # number of input nodes equal to the size of the input data.  The input
     # data is sized by the max_words constant initialized at the beginning of
     # the nlp_transformer function prior to this function's use.  The default
     # for max_words is 5000, which is an extremely large input layer when going
     # with this method for creating said layer.  The activation type of 'relu'
     # is the current data science best practice for activating nodes in a
-    # standard Dense neural network like this.
+    # standard dense neural network.
     model.add(Dense(max_words,
                     input_shape = (max_words,),
                     activation  = 'relu'))
@@ -62,8 +67,8 @@ def model_compiler(max_words = 5000,
     # to change the size of the deep layers, so constants will be used
     # associated with calculatable attributes from the data rather than
     # hard-coding the number of nodes per layer.  The reduction constant allows
-    # for scaling of first and fourth hidden layers by <reduction>.  The scale
-    # constant allows for further scaling of the second and third hidden
+    # for scaling of the first and fourth hidden layers by <reduction>.  The
+    # scale constant allows for further scaling of the second and third hidden
     # layers.  Thus, if reduction and scale are both unity, then the hidden
     # layers are the same size as the input layer and the shape is square.  If
     # reduction is less than unity, then the hidden layers grow in size and if
@@ -77,7 +82,7 @@ def model_compiler(max_words = 5000,
     # Overfitting refers to the condition where a model trains well against the
     # training data, but doesn't actually understand the data well enough to
     # perform well on new (testing) data.  This is referred to as variance,
-    # while the actual errors involved are referred to as bias. There is alway
+    # while the actual errors involved are referred to as bias. There is always
     # a bias/variance trade-off which is exactly analogous to the Heisenberg
     # Uncertainty Principle in physics.  Because of this, using dropout right
     # from the start when building a neural network is typical because neural
@@ -87,7 +92,7 @@ def model_compiler(max_words = 5000,
     # advances through its training epochs.  This necessarily introduces bias
     # into the neural network, which trades off of the extra variance and
     # thereby increases the performance of the neural network on testing data
-    # (magic!) through the bias/variance trade-off.  This is referred to as
+    # through the bias/variance trade-off (magic!).  This is referred to as
     # regularization and is another parameter that can be tweaked to improve
     # the neural network's overall performance.
 
@@ -106,8 +111,9 @@ def model_compiler(max_words = 5000,
                     activation = 'relu'))
 
     # Every hidden layer will have dropout applied to it.  The normal use of
-    # this is to preclude a node from becoming overactivated by an outlier in
-    # the data and becoming the driver of the output concerning that outlier.
+    # this is to preclude a particular node from becoming overactivated by an
+    # outlier in the data and becoming the driver of the output concerning that
+    # outlier.
     model.add(Dropout(dropout))
 
     # This is layer number 4 or hidden layer number 3.  Same as the previous
@@ -136,7 +142,7 @@ def model_compiler(max_words = 5000,
     # categorical_crossentropy is the loss type for any neural network
     # classification that is not a simple binary classification; 'adam' is the
     # current best practice for the optimizers in neural networks - other
-    # options are SGD, RMSprop, Adagrad, and Adadelta.  We are also most
+    # options are SGD, RMSprop, Adagrad, Adadelta...  We are also most
     # concerned about the accuracy (vice the recall or the specificity) of our
     # model; thus, the metric being trained against is accuracy.
     model.compile(loss      = 'categorical_crossentropy',

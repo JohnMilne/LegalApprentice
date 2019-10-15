@@ -1,194 +1,185 @@
+# This is the model training step of the Legal Apprentice workflow, developed
+# by John Milne on 10/15/2019
 
-    ### Model Fitting/Training
+# This function will train one model on one train/test/split dataset.  The
+# model's history, weights, training and testing accuracies, learning rate
+# curves, predictions and actual values are saved to a .csv file along with the
+# model objects being saved to JSON and the model weights being saved to HDF5.
 
-    # We have one model to train on two datasets - the CountVectorized data and the TF-IDF transformed data.  This is
-    # accomplished by saving the model to a new variable for each fitting/training session.  Each model's history, weights
-    # training and testing accuracies, learning rate curves, predictions and actual values are saved to file for later
-    # retrieval to plot them all against each other and/or create confusion matrices.
+### Model Fitting/Training
 
-    # Initializing the callback constants:
-    min_delta = 0.00005
-    patience  = 8
-
-    # EarlyStopping will be monitoring the accuracy and will stop the training after <patience> epochs if the change in
-    # what is being monitored only changes by <min_delta> during all of those epochs.
+# This model fitting and training is expecting to have the compiled model
+# passed to it along with the pre-split training and testing data passed in
+# along with any constants that differ from their defaults listd below:
+#   model_label - default of cv, which is a label to append to the model's
+#       filename.
+#   labels - default is ['CitationSentence','EvidenceSentence',
+#                        'FindingSentence','LegalRuleSentence',
+#                        'ReasoningSentence','Sentence'], which is the labels
+#       of the training data.  Only edit if the list actually changes.
+#   dropout - default of 0.50, which is the decimal percentage of nodes
+#       randomly 'dropped' during the current epoch of training.  This needs
+#       to be the number used with the model_compiler() function call previous
+#       to the use of this function call.
+#   reduction - default of 1, which is the reduction parameter of the
+#       model_compiler() and should be the number used there.
+#   scale - default of 1, which is the scale parameter of the model_compiler()
+#       and should be the number used there.
+#   max_words - default is 5000, which is the max_words parameter of the
+#       model_compiler() and should be the number used there.
+#   ngrams - default of (1,1), which is the ngrams parameter of the
+#       model_compiler() and should be the number used there.
+#   min_delta - default of 0.0001, which is the threshold for determining
+#       Early Stopping.
+#   patience - default of 5, which is the time to wait until Early Stopping.
+#   exp_a - default of 0.001, which is coefficient in from of the ae^-bx
+#       learning rate curve.
+#   exp_b - default of 0.05, which is the exponent of the x variable in the
+#       learning rate curve.
+#   batch_size - default of 100, which is the amount of data seen in one batch
+#       of training.  A batch_size of 1 is the equivalent of seeing one line
+#       at a time vice the default of 100 lines at a time.
+#   epochs - default of 30, which is the number of training epochs before the
+#       training quits.  Anything larger gets beat by Early Stopping.
+#   val_split - dafault is 0.10, which is the decimal percentage of the data
+#       held out as testing data.
+def model_training(model,
+                   X_train,
+                   y_train_1_hot,
+                   X_test,
+                   y_test_1_hot,
+                   model_label = 'cv',
+                   labels      = ['CitationSentence','EvidenceSentence',
+                                  'FindingSentence','LegalRuleSentence',
+                                  'ReasoningSentence','Sentence'],
+                   dropout     = 0.50,
+                   reduction   = 1,
+                   scale       = 1,
+                   max_words   = 5000,
+                   ngrams      = (1,1),
+                   min_delta   = 0.0001,
+                   patience    = 5,
+                   exp_a       = 0.001,
+                   exp_b       = 0.05,
+                   batch_size  = 100,
+                   epochs      = 30,
+                   val_split   = 0.10):
+    
+    #Imports of import:
+    from math import exp
+    from tensorflow.keras.callbacks import EarlyStopping, LearningRateScheduler
+    
+    import numpy as np
+    import os
+    import pandas as pd
+    
+    # EarlyStopping will be monitoring the accuracy and will stop the training
+    # after <patience> epochs if the change in what is being monitored,
+    # <'val_acc'>, only changes by <min_delta> during all of those epochs.
     early_stopping = EarlyStopping(monitor   = 'val_acc',
                                    min_delta = min_delta,
                                    patience  = patience,
                                    verbose   = 1)
-
+    
     # LearningRateScheduler:
-
-    # First step for the LearningRateScheduler is to define the function it will use:
+    
+    # First step for the LearningRateScheduler is to define the function it
+    # will use - this is where the exp_* constants are used to change the 
+    # behavior of the exponential decay of the learning rate.
     def learning_rate_function(epoch):
-
+    
         # Keeping it simple with a smooth exponential decay.
-        return float(0.001*(math.exp(-0.05*epoch)))
-
-    # After making the learning rate scheduler function, just call it the same way the other callbacks were called.
+        return float(exp_a*(exp(-exp_b*epoch)))
+    
+    # After making the learning rate scheduler function, just call it the same
+    # way the other callbacks were called.
     learning_rate_reducer = LearningRateScheduler(learning_rate_function)
-
-    # Initializing the constants being used in the model compilation step.  Specifically, we are using a batch size of
-    # 100, we are training for 100 epochs (or until early stopping happens...) and our validation split is 10% because we
-    # have are low on data at the moment.
-    batch_size = 100
-    epochs     = 100
-    val_split  = 0.10
-
-    # Now we fit the model to the training data.  We'll do this twice, once for the CountVectorizered dataset and again
-    # for the TF-IDF transformation on the dataset.
-
-    # CountVectorized data first:
-    print("\nTraining the CountVectorizer model\n")
-    cv_model = model.fit(X_train_cv,
-                         y_train_1_hot,
-                         validation_split = val_split,
-                         epochs           = epochs,
-                         batch_size       = batch_size,
-                         callbacks        = [early_stopping, learning_rate_reducer],
-                         shuffle          = False,
-                         verbose          = 1);
-
-    # We need to calculate the model number based on the existing save files.  We will be writing 4 save files per
-    # training session, so we need this calculation to make an accurate model number iteration.  I am also saving the four
-    # history files in this directory, so the math below is the correct math to get the correct model number each time
-    # (currently!).
-    new_model_number = int(((len(os.listdir('./model_saves/')) - 4)/4) + 1) + 1
-
-    # Now the actual saving to file part:
-    # Serialize the cv_model to JSON.
-    cv_model_json = model.to_json()
-    with open(f"./model_saves/cv_model{new_model_number}.json", "w") as json_file:
-        json_file.write(cv_model_json)
-
-    # Serialize the cv_model weights to HDF5.
-    model.save_weights(f"./model_saves/cv_model{new_model_number}.h5")
-    print(f"\nSaved cv_model{new_model_number} with dropout {dropout} at 'C:\Documents\Python Scripts\model_saves'")
     
-    # Saving the testing and training accuracies to a variable for printing to the screen at the end of the training
-    # sessions.
-    cv_train_accuracy = model.history.history['acc'][len(model.history.history['acc']) - 1]*100
-    cv_test_accuracy  = model.history.history['val_acc'][len(model.history.history['val_acc']) - 1]*100
-
-    # Also storing the whole history of each model in a dataframe and exporting to a .csv file for later imports and
-    # visualizations.
-    cv_model_history = pd.DataFrame(model.history.history)
-    cv_model_history.columns = ['Training Loss','Training Accuracy','Testing Loss','Testing Accuracy','Learning Rate']
-
-    # These append the model number, the dropout rate, the max_words used and the max n-grams used to the .csv so I can
-    # plot these quantities on my plots if I decide I need the model parameters in later analyses...
-    cv_model_history['Model #']   = np.ones(len(cv_model_history['Testing Loss']))*new_model_number
-    cv_model_history['Dropout']   = np.ones(len(cv_model_history['Testing Loss']))*dropout
-    cv_model_history['Max Words'] = np.ones(len(cv_model_history['Testing Loss']))*max_words
-    cv_model_history['N-Grams']   = np.ones(len(cv_model_history['Testing Loss']))*ngrams[1]
-    cv_model_history['Reduction'] = np.ones(len(cv_model_history['Testing Loss']))*reduction
-    cv_model_history['Scale']     = np.ones(len(cv_model_history['Testing Loss']))*scale
+    # Fitting the model to the training data using the passed constants:
+    new_model = model.fit(X_train,
+                          y_train_1_hot,
+                          validation_split = val_split,
+                          epochs           = epochs,
+                          batch_size       = batch_size,
+                          callbacks        = [early_stopping,
+                                              learning_rate_reducer],
+                          shuffle          = False,
+                          verbose          = 1);
     
-    # ...and I wanted to append a description of the shape of the model as well; thus, the structure variable will be a
-    # string that will be a (hopefully) brief description of the models' layer structures...
+    # Calculating the model number based on the existing save files.  This
+    # function will be writing two new save files per function call so this
+    # calculation need to take that into account in order to make an accurate
+    # model number iteration.  There also exist 4 static files as the baseline
+    # number of files before any new files are written.
+    new_model_number = int(((len(os.listdir('./model_saves/')) - 4)/4) + 1)
+    
+    # The actual saving to model to JSON part:
+    model_json = new_model.to_json()
+    with open(f"./model_saves/{model_label}model{new_model_number}.json", "w") as json_file:
+        json_file.write(model_json)
+    
+    # Saving the model weights to HDF5.
+    new_model.save_weights(f"./model_saves/{model_label}model{new_model_number}.h5")
+    print(f"\nSaved {model_label}model{new_model_number} to 'C:\Documents\Python Scripts\model_saves'")
+    
+    # Also storing the whole history of each model in a dataframe and exporting
+    # to a .csv file for later imports and visualizations.
+    model_history = pd.DataFrame(model.history.history)
+    model_history.columns = ['Training Loss','Training Accuracy','Testing Loss','Testing Accuracy','Learning Rate']
+    
+    # These append the model number, the dropout rate, the max_words used, the
+    # n-grams used, and the reduction and scale parameters of the model to a
+    # .csv file...
+    model_history['Model #']   = np.ones(len(model_history['Testing Loss']))*new_model_number
+    model_history['Dropout']   = np.ones(len(model_history['Testing Loss']))*dropout
+    model_history['Max Words'] = np.ones(len(model_history['Testing Loss']))*max_words
+    model_history['N-Grams']   = np.ones(len(model_history['Testing Loss']))*ngrams[1]
+    model_history['Reduction'] = np.ones(len(model_history['Testing Loss']))*reduction
+    model_history['Scale']     = np.ones(len(model_history['Testing Loss']))*scale
+    
+    # ... while this structure string is an attempt to capture the shape of
+    # the model's layers here as well...
     structure = f'{max_words} input layer, reduction {reduction} on next layers with {scale} adjustment to third layer+'
     shape = []
-    [shape.append(structure) for _ in range(len(cv_model_history['Testing Loss']))]
-    cv_model_history['Shape'] = shape
-
-    # ...and then adds them to the existing histories file.  The if statement makes sure any new history files get
-    # created with a header while further additions to the file do not repeat the header row addition, which breaks
-    # things!
+    [shape.append(structure) for _ in range(len(model_history['Testing Loss']))]
+    model_history['Shape'] = shape
+    
+    # ...and then adds them to any existing histories file.  The if statement
+    # makes sure any new history files get created with a header while further
+    # additions to the file do not repeat the header row addition.
     if new_model_number == 1:
-        cv_model_history.to_csv(f"./model_saves/cv_model_histories.csv",
-                                index  = False,
-                                header = True)
+        model_history.to_csv(f"./model_saves/model_histories.csv",
+                             index  = False,
+                             header = True)
     else:
-        cv_model_history.to_csv(f"./model_saves/cv_model_histories.csv",
-                                mode   = 'a',
-                                index  = False,
-                                header = False)
-    print(f"Saved cv_model{new_model_number} to ~/model_saves/cv_model_histories.csv\n")
+        model_history.to_csv(f"./model_saves/model_histories.csv",
+                             mode   = 'a',
+                             index  = False,
+                             header = False)
+    print(f"Saved {model_label}model{new_model_number} to ~/model_saves/model_histories.csv\n")
     
-    # We also need to do our predictions before the next fit and store those as well:
-    cv_predictions_per_class = model.predict_classes(X_test_cv)
+    # Now to do our predictions store those in the model object as well:
+    predictions_per_class = model.predict_classes(X_test)
     
-    # Now to map those numerical predictions to their labels...
-    cv_model_predictions = pd.DataFrame([labels[prediction] for prediction in cv_predictions_per_class],
-                                        columns = ['Predictions'])
+    # Mapping those numerical predictions to their labels...
+    model_predictions = pd.DataFrame([labels[prediction] for prediction in predictions_per_class],
+                                     columns = ['Predictions'])
     
-    # ...and compare them agains the real answers...
-    cv_model_predictions['Actual']    = y_test
+    # ...and comparing them agains the real answers...
+    model_predictions['Actual'] = [labels[prediction] for prediction in y_test_1_hot]
     
-    # ...and add all of the other attributes of the model I may want to know about afterwards...
-    cv_model_predictions['Model #']   = np.ones(len(cv_model_predictions['Predictions']))*new_model_number
-    cv_model_predictions['Dropout']   = np.ones(len(cv_model_predictions['Predictions']))*dropout
-    cv_model_predictions['Max Words'] = np.ones(len(cv_model_predictions['Predictions']))*max_words
-    cv_model_predictions['N-Grams']   = np.ones(len(cv_model_predictions['Predictions']))*ngrams[1]
-    cv_model_predictions['Reduction'] = np.ones(len(cv_model_predictions['Predictions']))*reduction
-    cv_model_predictions['Scale']     = np.ones(len(cv_model_predictions['Predictions']))*scale
+    # ...and adding all of the other attributes of the model to a different
+    # .csv file because the lengths of the sections are very different.
+    model_predictions['Model #']   = np.ones(len(model_predictions['Predictions']))*new_model_number
+    model_predictions['Dropout']   = np.ones(len(model_predictions['Predictions']))*dropout
+    model_predictions['Max Words'] = np.ones(len(model_predictions['Predictions']))*max_words
+    model_predictions['N-Grams']   = np.ones(len(model_predictions['Predictions']))*ngrams[1]
+    model_predictions['Reduction'] = np.ones(len(model_predictions['Predictions']))*reduction
+    model_predictions['Scale']     = np.ones(len(model_predictions['Predictions']))*scale
     
     # ...and then save those to file - can't save to the same file as the model histories because the size is all wrong.
-    cv_model_predictions.to_csv(f"./model_saves/cv_prediction_histories.csv")
+    model_predictions.to_csv(f"./model_saves/prediction_histories.csv")
+    print(f"Saved {model_label}model{new_model_number} to ~/model_saves/prediction_histories.csv")
     
     # Okay, that's all of the file writing in order to save the things stored in model.history.history before we overwrite
     # that with a new model!
-    
-    # Now for the TF-IDF transformed data:
-    print("Training the TF-IDF model\n")
-    tfidf_model = model.fit(X_train_tf,
-                            y_train_1_hot,
-                            validation_split = val_split,
-                            epochs           = epochs,
-                            batch_size       = batch_size,
-                            callbacks        = [early_stopping, learning_rate_reducer],
-                            shuffle          = False,
-                            verbose          = 1);
-
-    # Writing this model to file as well.
-    # Serialize the tf_model to JSON.
-    tf_model_json = model.to_json()
-    with open(f"./model_saves/tf_model{new_model_number}.json", "w") as json_file:
-        json_file.write(tf_model_json)
-
-    # Serialize the tf_model weights to HDF5.
-    model.save_weights(f"./model_saves/tf_model{new_model_number}.h5")
-    print(f"\nSaved tf_model{new_model_number} with dropout {dropout} at 'C:\Documents\Python Scripts\model_saves'")
-
-    # Again saving the training and testing accuracies to variable for printing to screen...
-    tf_train_accuracy = model.history.history['acc'][len(model.history.history['acc']) - 1]*100
-    tf_test_accuracy  = model.history.history['val_acc'][len(model.history.history['val_acc']) - 1]*100
-
-    # ...and saving the model histories to a .csv for later comparison (same situation as before)
-    tf_model_history = pd.DataFrame(model.history.history)
-    tf_model_history.columns = ['Training Loss','Training Accuracy','Testing Loss','Testing Accuracy','Learning Rate']
-    tf_model_history['Model #']   = np.ones(len(tf_model_history['Testing Loss']))*new_model_number
-    tf_model_history['Dropout']   = np.ones(len(tf_model_history['Testing Loss']))*dropout
-    tf_model_history['Max Words'] = np.ones(len(tf_model_history['Testing Loss']))*max_words
-    tf_model_history['N-Grams']   = np.ones(len(tf_model_history['Testing Loss']))*ngrams[1]
-    tf_model_history['Reduction'] = np.ones(len(tf_model_history['Testing Loss']))*reduction
-    tf_model_history['Scale']     = np.ones(len(tf_model_history['Testing Loss']))*scale
-    shape = []
-    [shape.append(structure) for _ in range(len(tf_model_history['Testing Loss']))]
-    tf_model_history['Shape'] = shape
-    if new_model_number == 1:
-        tf_model_history.to_csv(f"./model_saves/tf_model_histories.csv",
-                                index  = False,
-                                header = True)
-    else:
-        tf_model_history.to_csv(f"./model_saves/tf_model_histories.csv",
-                                mode = 'a',
-                                index  = False,
-                                header = False)
-    print(f"Saved tf_model{new_model_number} to ~/model_saves/tf_model_histories.csv")
-
-    # Same as above with the predictions being written to file as well.
-    tf_predictions_per_class   = model.predict_classes(X_test_cv)
-    tf_model_predictions = pd.DataFrame([labels[prediction] for prediction in tf_predictions_per_class],
-                                        columns = ['Predictions'])
-    tf_model_predictions['Actual']    = y_test
-    tf_model_predictions['Model #']   = np.ones(len(tf_model_predictions['Predictions']))*new_model_number
-    tf_model_predictions['Dropout']   = np.ones(len(tf_model_predictions['Predictions']))*dropout
-    tf_model_predictions['Max Words'] = np.ones(len(tf_model_predictions['Predictions']))*max_words
-    tf_model_predictions['N-Grams']   = np.ones(len(tf_model_predictions['Predictions']))*ngrams[1]
-    tf_model_predictions['Reduction'] = np.ones(len(tf_model_predictions['Predictions']))*reduction
-    tf_model_predictions['Scale']     = np.ones(len(tf_model_predictions['Predictions']))*scale
-    tf_model_predictions.to_csv(f"./model_saves/tf_prediction_histories.csv")
-    
-    # Ta Da! That trained up a bunch of CountVectorizer and TF-IDF models with <shape> nodes and varying dropout based
-    # on the for-loop characteristics.
