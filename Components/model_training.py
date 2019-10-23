@@ -1,34 +1,37 @@
-# This is the model training step of the Legal Apprentice workflow, developed
-# by John Milne on 10/15/2019
+# The model_training function was developed for the Legal Apprentice workflow,
+# written by John Milne, 10/15/2019
 
-# This function will train one model on one train/test/split dataset.  The
-# model's history, weights, training and testing accuracies, learning rate
+# This function will train one model on one train/test/split dataset with the
+# assumption that the nlp_transformer function was used to create the split.
+# The model's history, weights, training and testing accuracies, learning rate
 # curves, predictions and actual values are saved to a .csv file along with the
 # model objects being saved to JSON and the model weights being saved to HDF5.
 
-### Model Fitting/Training
-
-# This model fitting and training is expecting to have the compiled model
-# passed to it along with the pre-split training and testing data passed in
-# along with any constants that differ from their defaults listd below:
-#   model_label - default of cv, which is a label to append to the model's
-#       filename.
+# The model fitting will take the current model compiled by the model_compiler
+# function with the current train/test/split by the nlp_transformer and train
+# a dense neural network using the passed variables as hyperparameters.
+# The following is the data dictionary for the passed variables
 #   labels - default is ['CitationSentence','EvidenceSentence',
 #                        'FindingSentence','LegalRuleSentence',
 #                        'ReasoningSentence','Sentence'], which is the labels
 #       of the training data.  Only edit if the list actually changes.
+#       Because the nlp_transformer returns this list, if used in a script
+#       along with the nlp_transformer, labels = <nlp_transformer>[1] can be
+#       passed.
 #   dropout - default of 0.50, which is the decimal percentage of nodes
 #       randomly 'dropped' during the current epoch of training.  This needs
-#       to be the number used with the model_compiler() function call previous
-#       to the use of this function call.
+#       to be the number used with the model_compiler, which, like labels above
+#       is used previous to this has been returned by model_compiler and can be
+#       passed as dropout = <model_compiler>[1].
 #   reduction - default of 1, which is the reduction parameter of the
-#       model_compiler() and should be the number used there.
-#   scale - default of 1, which is the scale parameter of the model_compiler()
-#       and should be the number used there.
+#       model_compiler and, as above, can be passed as redcuction = 
+#       <model_compiler>[2].
+#   scale - default of 1, which is the scale parameter of the model_compiler
+#       and can be passed as scale = <model_compiler>[3].
 #   max_words - default is 5000, which is the max_words parameter of the
-#       model_compiler() and should be the number used there.
+#       nlp_transformer and can be passed as max_words = <nlp_transformer>[2].
 #   ngrams - default of (1,1), which is the ngrams parameter of the
-#       model_compiler() and should be the number used there.
+#       nlp_transformer and can be passed as ngram = <nlp_transformer>[4].
 #   min_delta - default of 0.0001, which is the threshold for determining
 #       Early Stopping.
 #   patience - default of 5, which is the time to wait until Early Stopping.
@@ -43,13 +46,8 @@
 #       training quits.  Anything larger gets beat by Early Stopping.
 #   val_split - dafault is 0.10, which is the decimal percentage of the data
 #       held out as testing data.
-def model_training(model,
-                   X_train,
-                   y_train_1_hot,
-                   X_test,
-                   y_test_1_hot,
-                   model_label = 'cv',
-                   labels      = ['CitationSentence','EvidenceSentence',
+
+def model_training(labels      = ['CitationSentence','EvidenceSentence',
                                   'FindingSentence','LegalRuleSentence',
                                   'ReasoningSentence','Sentence'],
                    dropout     = 0.50,
@@ -68,10 +66,20 @@ def model_training(model,
     #Imports of import:
     from math import exp
     from tensorflow.keras.callbacks import EarlyStopping, LearningRateScheduler
-    
+
+    from keras import models
     import numpy as np
     import os
     import pandas as pd
+    
+    # Loading the saved model:
+    model = models.load_model("./model_saves/model.h5")
+    
+    # Ingesting the data previously transformed by nlp_transformer().
+    X_train = pd.read_pickle("./Pickles/Training/X_train.pkl")
+    X_test  = pd.read_pickle("./Pickles/Testing/X_test.pkl")
+    y_train = pd.read_pickle("./Pickles/Training/y_train.pkl")
+    y_test  = pd.read_pickle("./Pickles/Testing/y_test.pkl")
     
     # EarlyStopping will be monitoring the accuracy and will stop the training
     # after <patience> epochs if the change in what is being monitored,
@@ -83,7 +91,7 @@ def model_training(model,
     
     # LearningRateScheduler:
     
-    # First step for the LearningRateScheduler is to define the function it
+    # The first step for the LearningRateScheduler is to define the function it
     # will use - this is where the exp_* constants are used to change the 
     # behavior of the exponential decay of the learning rate.
     def learning_rate_function(epoch):
@@ -97,7 +105,7 @@ def model_training(model,
     
     # Fitting the model to the training data using the passed constants:
     new_model = model.fit(X_train,
-                          y_train_1_hot,
+                          y_train,
                           validation_split = val_split,
                           epochs           = epochs,
                           batch_size       = batch_size,
@@ -106,80 +114,90 @@ def model_training(model,
                           shuffle          = False,
                           verbose          = 1);
     
-    # Calculating the model number based on the existing save files.  This
-    # function will be writing two new save files per function call so this
-    # calculation need to take that into account in order to make an accurate
-    # model number iteration.  There also exist 4 static files as the baseline
-    # number of files before any new files are written.
-    new_model_number = int(((len(os.listdir('./model_saves/')) - 4)/4) + 1)
-    
-    # The actual saving to model to JSON part:
-    model_json = new_model.to_json()
-    with open(f"./model_saves/{model_label}model{new_model_number}.json", "w") as json_file:
-        json_file.write(model_json)
-    
-    # Saving the model weights to HDF5.
-    new_model.save_weights(f"./model_saves/{model_label}model{new_model_number}.h5")
-    print(f"\nSaved {model_label}model{new_model_number} to 'C:\Documents\Python Scripts\model_saves'")
+    # Saving the model.  This saves the weights and biases of each node as well
+    # as the optimizer used when compiling the model:
+    model.save(path = "./model_saves/model.h5")
     
     # Also storing the whole history of each model in a dataframe and exporting
     # to a .csv file for later imports and visualizations.
-    model_history = pd.DataFrame(model.history.history)
-    model_history.columns = ['Training Loss','Training Accuracy','Testing Loss','Testing Accuracy','Learning Rate']
+    history = pd.DataFrame(new_model.history.history)
+    history.columns = ['Training Loss',
+                             'Training Accuracy',
+                             'Testing Loss',
+                             'Testing Accuracy',
+                             'Learning Rate']
     
-    # These append the model number, the dropout rate, the max_words used, the
-    # n-grams used, and the reduction and scale parameters of the model to a
-    # .csv file...
-    model_history['Model #']   = np.ones(len(model_history['Testing Loss']))*new_model_number
-    model_history['Dropout']   = np.ones(len(model_history['Testing Loss']))*dropout
-    model_history['Max Words'] = np.ones(len(model_history['Testing Loss']))*max_words
-    model_history['N-Grams']   = np.ones(len(model_history['Testing Loss']))*ngrams[1]
-    model_history['Reduction'] = np.ones(len(model_history['Testing Loss']))*reduction
-    model_history['Scale']     = np.ones(len(model_history['Testing Loss']))*scale
+    # These append the dropout rate, the max_words used, the n-grams used, an
+    # the reduction and scale parameters of the model to a that dataframe...
+    history['Dropout']   = np.ones(len(history['Testing Loss']))*dropout
+    history['Max Words'] = np.ones(len(history['Testing Loss']))*max_words
+    history['N-Grams']   = np.ones(len(history['Testing Loss']))*ngrams[1]
+    history['Reduction'] = np.ones(len(history['Testing Loss']))*reduction
+    history['Scale']     = np.ones(len(history['Testing Loss']))*scale
     
-    # ... while this structure string is an attempt to capture the shape of
-    # the model's layers here as well...
-    structure = f'{max_words} input layer, reduction {reduction} on next layers with {scale} adjustment to third layer+'
-    shape = []
-    [shape.append(structure) for _ in range(len(model_history['Testing Loss']))]
-    model_history['Shape'] = shape
+    # ...and then adds them to any existing histories file (after the below
+    # check for an existing histories file).
     
-    # ...and then adds them to any existing histories file.  The if statement
-    # makes sure any new history files get created with a header while further
-    # additions to the file do not repeat the header row addition.
-    if new_model_number == 1:
-        model_history.to_csv(f"./model_saves/model_histories.csv",
-                             index  = False,
-                             header = True)
-    else:
-        model_history.to_csv(f"./model_saves/model_histories.csv",
+    # Grabbing the current directory listing where histories will be stored:
+    list_of_histories = os.listdir("./model_saves/")
+    
+    # Checking for the existence of a previous histories file:
+    
+    # If it exists, write the .csv file without a header and in append mode
+    # (because the file alread exists and therefore already has its header)...
+    if [s.lower for s in list_of_histories if 'model_histories.csv' in s]:
+        history.to_csv(f"./model_saves/model_histories.csv",
                              mode   = 'a',
                              index  = False,
                              header = False)
-    print(f"Saved {model_label}model{new_model_number} to ~/model_saves/model_histories.csv\n")
-    
-    # Now to do our predictions store those in the model object as well:
-    predictions_per_class = model.predict_classes(X_test)
+        
+    # ...otherwise, write the file with a header.
+    else:
+        history.to_csv(f"./model_saves/model_histories.csv",
+                             index  = False,
+                             header = True)
+
+    # Predicting using the model on the testing data:
+    predictions = new_model.predict_classes(X_test)
     
     # Mapping those numerical predictions to their labels...
-    model_predictions = pd.DataFrame([labels[prediction] for prediction in predictions_per_class],
-                                     columns = ['Predictions'])
+    preds = pd.DataFrame([labels[pred] for pred in predictions],
+                         columns = ['Predictions'])
     
     # ...and comparing them agains the real answers...
-    model_predictions['Actual'] = [labels[prediction] for prediction in y_test_1_hot]
+    preds['Actual'] = [labels[pred] for pred in y_test]
     
-    # ...and adding all of the other attributes of the model to a different
-    # .csv file because the lengths of the sections are very different.
-    model_predictions['Model #']   = np.ones(len(model_predictions['Predictions']))*new_model_number
-    model_predictions['Dropout']   = np.ones(len(model_predictions['Predictions']))*dropout
-    model_predictions['Max Words'] = np.ones(len(model_predictions['Predictions']))*max_words
-    model_predictions['N-Grams']   = np.ones(len(model_predictions['Predictions']))*ngrams[1]
-    model_predictions['Reduction'] = np.ones(len(model_predictions['Predictions']))*reduction
-    model_predictions['Scale']     = np.ones(len(model_predictions['Predictions']))*scale
+    # ...and adding all of these plus the other attributes of the model to the
+    # dataframe...
+    preds['Dropout']   = np.ones(len(preds['Predictions']))*dropout
+    preds['Max Words'] = np.ones(len(preds['Predictions']))*max_words
+    preds['N-Grams']   = np.ones(len(preds['Predictions']))*ngrams[1]
+    preds['Reduction'] = np.ones(len(preds['Predictions']))*reduction
+    preds['Scale']     = np.ones(len(preds['Predictions']))*scale
     
-    # ...and then save those to file - can't save to the same file as the model histories because the size is all wrong.
-    model_predictions.to_csv(f"./model_saves/prediction_histories.csv")
-    print(f"Saved {model_label}model{new_model_number} to ~/model_saves/prediction_histories.csv")
+    # ...and then saving the dataframe to another .csv file - can't save to the
+    # same file as the model histories because the size is all wrong.
     
-    # Okay, that's all of the file writing in order to save the things stored in model.history.history before we overwrite
-    # that with a new model!
+    # Checking for the existence of a previous predictions file:
+    
+    # Grabbing the current directory listing where predictions will be stored:
+    list_of_histories = os.listdir("./model_saves/")
+    
+    # Checking if the file name that will be saved here already exists.
+    
+    # If it exists, write the .csv file without a header and in append mode
+    # (because the file alread exists and therefore already has its header)...
+    if [s.lower for s in list_of_histories if 'preds_histories.csv' in s]:
+        preds.to_csv("./model_saves/preds_histories.csv",
+                     mode   = 'a',
+                     index  = False,
+                     header = False)
+        
+    # ...otherwise, write the file with a header.
+    else:
+        preds.to_csv("./model_saves/model_histories.csv",
+                     index  = False,
+                     header = True)
+    
+    # Now to return all of the hyperparameters of the training:    
+    return min_delta, patience, exp_a, exp_b, batch_size, epochs, val_split

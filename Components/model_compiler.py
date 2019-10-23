@@ -1,22 +1,29 @@
-# This is the model creation step of the Legal Apprentice workflow, developed
-# by John Milne on 10/15/2019
+# The model_compiler function was developed for the Legal Apprentice workflow,
+# written by John Milne, 10/15/2019
 
 # This compiles the neural network model layers.  This compiler does not do any
 # training on training data or any predicting on test data.  It just creates
 # the model using the following passed parameters:
 #   max_words - default of 5000
 #   dropout   - default of 0.50
-#   num_class - default of 6
+#   labels    - default of ['CitationSentence','EvidenceSentence',
+#                           'FindingSentence','LegalRuleSentence',
+#                           'ReasoningSentence','Sentence'],
 #   reduction - default of 1
 #   scale     - default of 1
+
 # The meaning is those constants is as follows:
-#   max_words is the maximum number of stored features used by the model - this
-#       should be the number returned by the nlp_transformer for consistency.
+#   max_words is the maximum number of stored features used by the model.  This
+#       is also the number passed by the nlp_transformer function that should
+#       have been used to create the data; so, assuming this is correct, then
+#       this can be passed as max_words = <nlp_transformer>[2]
 #   dropout is the regularization rate of the model - use the default unless
 #       specifically testing new models.
-#   num_class is the number of categories to be classified.  Currently, that
-#       number is 6 so keep the default unless new classes are created.
-#   reduction is a scaler used within the model to scale the layers' nodes
+#   labels is the list of labels that are the answers for which type of
+#       sentence the model is going to label each sentence.  Labels is also
+#       the output of the nlp_transformer function, which if called previously
+#       can be passed as labels = <nlp_transformer>[1]
+#   reduce is a scaler used within the model to scale the layers' nodes
 #       compared to the input layer - use default unless testing again.
 #   scale is another scaler for the model - again use default unless testing.
 
@@ -24,23 +31,24 @@
 #   hard-coded constants associated with the best performing model within the
 #   framework of the function rather than as passed variables as this function
 #   is currently built.  They are currently only set up as passed variables for
-#   ease of use testing out different models.
+#   ease of use when testing out different models.
+
 def model_compiler(max_words = 5000,
                    dropout   = 0.50,
-                   num_class = 6,
-                   reduction = 1,
+                   labels    = ['CitationSentence','EvidenceSentence',
+                                'FindingSentence','LegalRuleSentence',
+                                'ReasoningSentence','Sentence'],
+                   reduce    = 1,
                    scale     = 1):
     
     # Imports of import:
     from tensorflow.keras.layers import Dense, Dropout
     from tensorflow.keras.models import Sequential
     
-    ### Model Creation
-    
-    # The first step is to instantiate the model:
+    # The first step of the model creation is to instantiate the model:
     model = Sequential();
 
-    # Now to start adding the layers:
+    # Adding the layers:
 
     # The first layer is the input layer.  It seems desirable to have the
     # number of input nodes equal to the size of the input data.  The input
@@ -52,7 +60,8 @@ def model_compiler(max_words = 5000,
     # standard dense neural network.
     model.add(Dense(max_words,
                     input_shape = (max_words,),
-                    activation  = 'relu'))
+                    activation  = 'relu'
+                    name        = f'Input Layer: ({max_words},)'))
 
     # All subsequent layers between the input layer and the final output layer
     # are the hidden layers.  Deep Learning's pedantic meaning is that for deep
@@ -76,8 +85,9 @@ def model_compiler(max_words = 5000,
     # size.  This allows for the aforementioned square shape, a pear shape or
     # a saddle shape in terms of the shape of the whole set of hidden layers
     # when using the above constants.
-    model.add(Dense(int(max_words/reduction),
-                    activation = 'relu'))
+    model.add(Dense(int(max_words/reduce),
+                    activation = 'relu'
+                    name       = f'Hidden Layer 1: {max_words/reduce}'))
 
     # Overfitting refers to the condition where a model trains well against the
     # training data, but doesn't actually understand the data well enough to
@@ -98,7 +108,8 @@ def model_compiler(max_words = 5000,
 
     # TL;DR: dropout is a decimal percentage and increases performance on
     # testing data, which is the performance metric in use with this model.
-    model.add(Dropout(dropout))
+    model.add(Dropout(dropout,
+                      name = f'Dropout 1 with dropout = {dropout}'))
 
     # This is the second real hidden layer because the dropout layer is really
     # a process vice a layer. The number of nodes are scaled by both the
@@ -107,26 +118,32 @@ def model_compiler(max_words = 5000,
     # <scale> constant equals 1, then the shape is square.  If the <scale>
     # constant is positive, then the shape is pyramidal.  Lastly, if the
     # <scale> constant is negative then we have a saddle shape.
-    model.add(Dense(int(max_words*scale/reduction),
-                    activation = 'relu'))
+    model.add(Dense(int(max_words*scale/reduce),
+                    activation = 'relu'
+                    name       = f'Hidden Layer 2: {max_words*scale/reduce}'))
 
     # Every hidden layer will have dropout applied to it.  The normal use of
     # this is to preclude a particular node from becoming overactivated by an
     # outlier in the data and becoming the driver of the output concerning that
     # outlier.
-    model.add(Dropout(dropout))
+    model.add(Dropout(dropout,
+                      name = f'Dropout 2 with dropout = {dropout}'))
 
     # This is layer number 4 or hidden layer number 3.  Same as the previous
     # layer.
     model.add(Dense(int(max_words*scale/reduction),
-                    activation = 'relu'))
-    model.add(Dropout(dropout))
+                    activation = 'relu',
+                    name       = f'Hidden Layer 3: {max_words*scale/reduce}'))
+    model.add(Dropout(dropout,
+                      name = f'Dropout 3 with dropout = {dropout}'))
 
     # The last hidden layer is the same as the first hidden layer, which allows
     # for square, saddle and pear shapes as structures for the hidden layers.
     model.add(Dense(int(max_words/reduction),
-                    activation = 'relu'))
-    model.add(Dropout(dropout))
+                    activation = 'relu',
+                    name       = f'Hidden Layer 4: {max_words*scale/reduce}'))
+    model.add(Dropout(dropout,
+                      name = f'Dropout 4 with dropout = {dropout}'))
 
     # The Output Layer.  The output layer has two properties that distinguish
     # it from the other layers.  The first distinction is that the number of
@@ -134,8 +151,9 @@ def model_compiler(max_words = 5000,
     # to classify.  The second distinction is that the best practice in data
     # science is to use softmax for the activation of the output layer vice
     # the relu activation of the previous layers.
-    model.add(Dense(num_class,
-                    activation = 'softmax'))
+    model.add(Dense(len(labels),
+                    activation = 'softmax',
+                    name       = f'Output layer with {len(labels)} nodes'))
 
     # That's it for the building of the neural network's layers.  The next step
     # compiles them into the model object using the parameters given:
@@ -148,10 +166,17 @@ def model_compiler(max_words = 5000,
     model.compile(loss      = 'categorical_crossentropy',
                   optimizer = 'adam',
                   metrics   = ['accuracy'])
-
+    
+    # Saving the model.  This saves the weights and biases of each node as well
+    # as the optimizer used when compiling the model:
+    model.save(path = "./model_saves/model.h5")
+    
     # This gargantuan model will produce a very interesting summary; thus, the
     # need to print out its summary as part of the output of the function:
-    model.summary()
+    model.summary() 
     
-    # And now to return the model object just created
-    return model
+    # Creating the return variable:
+    model_created_and_saved = 'Done'
+    
+    # And now to return the hyperparameters of the model:
+    return model_created_and_saved, dropout, reduction, scale

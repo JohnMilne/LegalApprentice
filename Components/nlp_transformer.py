@@ -1,75 +1,73 @@
-# The nlp_transformer function, written by John Milne 10/15/2019
+# The nlp_transformer function was developed for the Legal Apprentice workflow,
+# written by John Milne, 10/15/2019
 
-# This function takes the data from the Legal Apprentice workflow as an input.
-# One of the assumptions is that the data will be a dataframe that has at least
+# This function takes as an input the data from the Legal Apprentice workflow
+# that is assumed to have been saved to "~/Pickles/" as the currently known
+# pickle file name of 50Cases.pkl.
+
+# Another assumption is that the data will be a dataframe that has at least
 # two columns which are labeled as Sentences and RhetoricalRoles respectively.
 
-# This function will transform the data using both CountVectorizer and TF-IDF
-# transformers and will return a large number of objects at the conclusion of
-# those transformations.  The information about those return objects is in the
-# comments above the return statement.
+# This function will do a train/test/split on the data, then transform the
+# data with the Keras' Tokenizer transformer using one of the available
+# <modes> (default is count) of transformation and pickle those
+# split-transformed datasets (X_train, X_test, y_train, y_test) into 4 pickle
+# files holding all 4 transformed training and testing datasets.
 
-def nlp_transformer(df):
+# This is an NLP transformer process.  The passed variables are the
+# hyperparameters of the NLP transformer.  The max_words variable determines
+# the maximum number of words to keep within the transformer, the ngrams tuple
+# gives the minimum and maximum (respectively) of the number of consecutive
+# words to pay attention to and the mode refers to the type of NLP transformer
+# being used.  The current set of modes available in Tokenizer are 'binary',
+# 'count', 'freq' and 'tf-idf'.
+
+# The function will return the list of unique labels if such are needed
+# further along in the workflow.
+
+def nlp_transformer(max_words = 5000,
+                    mode      = 'count',
+                    ngrams    = (1,3)):
     
     # Necessary imports:
-    from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-    from sklearn.model_selection import train_test_split
-    from sklearn.preprocessing import LabelEncoder
+    from sklearn.model_selection  import train_test_split
+    from sklearn.preprocessing    import LabelEncoder
     from sklearn.utils.multiclass import unique_labels
-    from tensorflow.keras.utils import to_categorical
+    from keras.preprocessing.text import Tokenizer
+    from keras.utils              import to_categorical
+    
+    import pandas as pd
+    import pickle
+    
+    # Ingesting the data from "~/Pickles/50cases.pkl"
+    df = pd.read_pickle("./Pickles/50Cases.pkl")
     
     # Using train_test_split to do the sorting into training and testing
     # datasets.  The random_state flag allows for reproducability across
-    # implementations, only using a 10% testing split due to a low amount of
-    # data and need to set the shuffle flag to false so the order that the
-    # predictions exist in the df.Sentences dataframe will be the order that
-    # the list of answers in df.RhetoricalRoles will occur.
+    # implementations, only using a 15% testing split due to a low amount of
+    # data currently and there is the need to set the shuffle flag to false to
+    # accomplish that reproducability.
     X_train, X_test, y_train, y_test = train_test_split(df.Sentences,
                                                         df.RhetoricalRoles,
                                                         random_state = 42,
-                                                        test_size    = 0.1,
+                                                        test_size    = 0.15,
                                                         shuffle      = False)
     
-    # Ensuring the labeling is unique:
-    labels = unique_labels(y_test)
+    # Instantiating the Tokenizer object with the passed max_words variable.
+    tokens = Tokenizer(num_words = max_words)
     
-    ### Preprocessing the data using NLP methods
+    ### The actual fit/transform on the training data.
     
-    # We use both a word count vectorizing method and a TF-IDF ((t)erm
-    # (f)requency - (i)nverse (d)ocument (f)requency) method for turning words
-    # into vectors.  We are specifically using both methods to compare against
-    # each other performance-wise.
+    # Step #1 is to use the fit_on_text to transform the tokenizer using the
+    # training data.
+    tokens.fit_on_texts(X_train)
     
-    ### Count Vectorizer first!
-    
-    # Initializing constants for both the CountVectorizer and the TF-IDF
-    # transformers for ease with tweaking the transformers during modeling.
-    # The max_words constant is both the maximum words the transformer will
-    # hold after transforming the data as well as the basis for the number of
-    # nodes in the layers of the neural network during later parts of the
-    # workflow.  The ngrams constant is the range of n-grams that the
-    # transformers will use.  Typical is just an n-gram of 1 which for both
-    # transformers look at each word individually against all of the other
-    # words in the corpus.  N-grams larger than 1 indicate that the transformer
-    # will use that many words that occur next to each other together to make a
-    # phrase and add all of those comparisons to the features list.  Because
-    # that list necessarily gets quite large, the max_words constant becomes
-    # a necessity to keep the features list to a reasonable size.
-    max_words = 10000
-    ngrams    = (1,3)
-    
-    # Instantiating the CountVectorizer object that will hold all of the
-    # information about the transformations done to the dataset by the
-    # CountVectorizer - the reason the whole object is returned by the function
-    count_vec = CountVectorizer(ngram_range  = ngrams,
-                                max_features = max_words)
-    
-    # The actual fit/transform on the training data...
-    X_train_cv = count_vec.fit_transform(X_train)
-    
-    # ...but only transforming the testing data.  Otherwise, the testing data
-    # gets included with the training data!
-    X_test_cv  = count_vec.transform(X_test)
+    # Step #2 is to use the text_to_matrix method on both the training and
+    # testing data, passing mode as the NLP transform type.
+    X_train_tokens = tokens.texts_to_matrix(X_train,
+                                            mode = mode) 
+    X_test_tokens  = tokens.texts_to_matrix(X_test,
+                                            mode = mode)
     
     # Turning the labels on the training data into one-hot-encoded vectors that
     # the neural network will understand.
@@ -83,8 +81,7 @@ def nlp_transformer(df):
     # The LabelEncoder is fit to the y_train labels...
     encoder.fit(y_train)
     
-    # ...and then used to transform the y_* series of labels.  Again, no
-    # fitting on the test data.
+    # ...and then used to transform the y_* series of labels.
     y_train_encode = encoder.transform(y_train)
     y_test_encode  = encoder.transform(y_test)
     
@@ -93,33 +90,37 @@ def nlp_transformer(df):
     y_train_1_hot = to_categorical(y_train_encode)
     y_test_1_hot  = to_categorical(y_test_encode)
     
-    ### Now for TF-IDF!
+    # Now that the train/test/split is complete, pickling the transformed
+    # datasets into the respective /Training and /Testing directories:
     
-    # Using the same constants for TF-IDF that were used for CountVectorizer;
-    # thus, no need for new constants to be initialized here!
-    tfidf_vec = TfidfVectorizer(ngram_range  = ngrams,
-                                max_features = max_words)
+    # Using try/except in order to not error out when the file already exists
+    try:
+        with open('./Pickles/Training/X_train.pkl','xb') as f:
+            pickle.dump(X_train_tokens, f)
+    except FileExistsError:
+        print("the file X_train already exists - rename or move and retry.")
+
+    try:
+        with open('./Pickles/Testing/X_test.pkl','xb') as f:
+            pickle.dump(X_test_tokens, f)
+    except FileExistsError:
+        print("The file X_test already exists - rename or move and retry.")
+
+    try:
+        with open('./Pickles/Training/y_train.pkl','xb') as f:
+            pickle.dump(y_train_1_hot, f)
+    except FileExistsError:
+        print("The file y_train already exists - rename or move and retry.")
+
+    try:
+        with open('./Pickles/Testing/y_test.pkl','xb') as f:
+            pickle.dump(y_test_1_hot, f)
+    except FileExistsError:
+        print("The file y_test already exists - rename or move and retry.")
+        
+    # Creating the unique labels list as the return item:
+    labels = unique_labels(y_test)
     
-    # Doing the fit_transform on the data using TF-IDF in the same way that
-    # CountVectorizer was used to transform the data above:
-    X_train_tf = tfidf_vec.fit_transform(X_train)
-    X_test_tf  = tfidf_vec.transform(X_test)
-    
-    # The labels have already been transformed using the
-    # LabelEncoder/to_categorical process above, so no need to repeat that
-    # process - we're done with the data transformations!
-    
-    # Now for the long list of return objects this function gives:
-    #   X_train_cv - the training data transformed by the CountVectorizer
-    #   X_test_cv  - the testing data transformed by the CountVectorizer
-    #   X_train_tf - the training data transformed by TD-IDF
-    #   X_test_cv  - the testing data transformed by TF-IDF
-    #   y_train_1_hot - the labels for the training data 1-hot-encoded
-    #   y_test_1_hot  - the labels for the testing data 1-hot-encoded
-    #   labels    - the list of unique labels amongst the entries of *_1_hot
-    #   max_words - the number of words the model has been limited to
-    #   ngrams    - the number of n-grams the transformers went out to
-    #   count_vec - the CountVectorizer object and its attributes
-    #   tfidf_vec - the TF-IDF Vectorizer object and its attributes
-    return (X_train_cv, X_test_cv, X_train_tf, X_test_tf, y_train_1_hot,
-            y_test_1_hot, labels, max_words, ngrams, count_vec, tfidf_vec)
+    return labels
+
+nlp_transformer(mode = 'count')

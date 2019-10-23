@@ -1,41 +1,29 @@
-# This is the model predicting step of the Legal Apprentice workflow, developed
-# by John Milne on 10/15/2019
+# The model_predicting function was developed for the Legal Apprentice workflow,
+# written by John Milne, 10/15/2019
 
 # This function assumes that a working model has been saved to a local
 # /model_saves/ folder in JSON format and that the weights of that model have
-# also been saved to that folder in HDF5 format.  It loads that model and takes
-# the passed data and predicts against that data; thus, the expectation is that
-# the data is well-formed testing data with answers (y_test).  The function
-# returns the model's object as well as writes a .csv file holding the
-# predictions.  The data structure to pass is expected to be a tuple of the
-# form (X_test, y_test).
+# also been saved to that folder in HDF5 format.  It also assumese that the
+# training data has been previously created and the results of the training
+# will be located in the directory /Pickles.  It loads the model and the data
+# then predicts using said model against said data; thus, the expectation is
+# that the data is well-formed testing data named (X_test) with answers in
+# (y_test).  The function then returns the models predictions paired with the
+# answers in y_test to a list of lists as well as writes the model's object
+# to disk.
 
-### Model Predictor
-
-def model_predictor(model_path = './model_saves/',
-                    model_number,
-                    data):
+def model_predictor():
     
     # Imports of import
-    import os
+    from keras.models import load_model
+    import json
     import pandas as pd
     
     # Loading the model to predict with:
-    
-    # Opening the model in read mode:
-    json_file = open(f"{model_path}model{model_number}.csv", "r")
-    
-    # Reading the model into its json variable:
-    loaded_model_json = json_file.read()
-    
-    # Being a good pythonic coder and closing the file afterwards:
-    json_file.close()
-    
-    # Reading the json into its keras-readable variable:
-    loaded_model = model_from_json(loaded_model_json)
+    model = load_model("./model_saves/mode.json)
     
     # Loading the saved weights from the HDF5 file into the model:
-    loaded_model.load_weights(f"{model_path}model{model_number}.h5")
+    loaded_model.load_weights(f"model.h5")
     
     ### Predict against the input data
     
@@ -56,7 +44,7 @@ def model_predictor(model_path = './model_saves/',
               'LegalRuleSentence','ReasoningSentence','Sentence']
     
     # ...and create the revised predictions list using the labels:
-    predictions = pd.DataFrame([labels[prediction] for prediction in predictions],
+    predictions = pd.DataFrame([labels[pred] for pred in predictions],
                                columns = ['Predictions'])
     
     # Check against the answers:
